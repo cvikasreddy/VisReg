@@ -1,9 +1,11 @@
 import os
 os.environ["CUDA_VISIBLE_DEVICES"]="0"
-from tqdm import tqdm
+#from tqdm import tqdm
 
 import numpy as np
 import tensorflow as tf
+
+from utils.layers import fc_layer, conv_layer, pool_layer, dropout_layer, change_to_fc, batch_norm
 
 from utils.data import CifarDataLoader
 batch_size = 128
@@ -18,64 +20,6 @@ with tf.name_scope('input'):
 
 with tf.name_scope('phase'):
     phase_train = tf.placeholder(tf.bool, name='phase_train')
-
-def fc_layer(x, in_dim, out_dim, act='relu'):
-	with tf.name_scope('fc_layer'):
-		weights = tf.Variable(tf.truncated_normal([in_dim, out_dim], stddev=0.01))
-		biases = tf.Variable(tf.constant(0.0, shape=[out_dim]))
-		activations = tf.nn.relu(tf.matmul(x, weights) + biases) if(act == 'relu') else tf.nn.softmax(tf.matmul(x, weights) + biases)
-	return activations
-
-def conv_layer(x, kernel_shape, out_dim):
-	with tf.name_scope('conv_layer'):
-		weights = tf.Variable(tf.truncated_normal(kernel_shape, stddev=0.01))
-		biases = tf.Variable(tf.constant(0.0, shape=[out_dim]))
-		activations = tf.nn.relu(tf.add(tf.nn.conv2d(x, weights, [1, 1, 1, 1], padding='SAME'), biases))
-	return activations
-
-def pool_layer(x):
-	return tf.nn.max_pool(x, ksize=[1, 2, 2, 1], strides = [1, 2, 2, 1], padding='SAME')
-    
-def dropout_layer(x, prob):
-	with tf.name_scope('dropout_layer'):
-		return tf.nn.dropout(x, prob)
-
-def change_to_fc(x): 
-	with tf.name_scope('reshape_layer'):    
-		inp_shape = x.get_shape()
-		dim = np.prod(np.array(inp_shape.as_list()[1:]))
-		reshape = tf.reshape(x, [-1, dim])   
-	return reshape, dim
-
-def batch_norm(x, phase_train, n_out):
-    """
-    Batch normalization on convolutional maps.
-    Args:
-        x:           Tensor, 4D BHWD input maps
-        n_out:       integer, depth of input maps
-        phase_train: boolean tf.Varialbe, true indicates training phase
-        scope:       string, variable scope
-    Return:
-        normed:      batch-normalized maps
-    """
-    with tf.variable_scope('bn'):
-        beta = tf.Variable(tf.constant(0.0, shape=[n_out]),
-                                     name='beta', trainable=True)
-        gamma = tf.Variable(tf.constant(1.0, shape=[n_out]),
-                                      name='gamma', trainable=True)
-        batch_mean, batch_var = tf.nn.moments(x, [0], name='moments')
-        ema = tf.train.ExponentialMovingAverage(decay=0.5)
-
-        def mean_var_with_update():
-            ema_apply_op = ema.apply([batch_mean, batch_var])
-            with tf.control_dependencies([ema_apply_op]):
-                return tf.identity(batch_mean), tf.identity(batch_var)
-
-        mean, var = tf.cond(phase_train,
-                            mean_var_with_update,
-                            lambda: (ema.average(batch_mean), ema.average(batch_var)))
-        normed = tf.nn.batch_normalization(x, mean, var, beta, gamma, 1e-3)
-    return normed
 
 def fc_net(x):
 	fc1 = fc_layer(x, 32*32*3, 1024)
@@ -178,29 +122,32 @@ with tf.name_scope('loss'):
  #            ]
  #        l2_loss = tf.add_n([tf.nn.l2_loss(v) for v in trainable_vars])
 	# cost = cost + 0.0005*L2_loss
+	
+	cost_summ = tf.scalar_summary('loss', cost)
                
 with tf.name_scope('accuracy'):
 	correct_pred = tf.equal(tf.argmax(pred, 1), tf.argmax(y, 1))
 	accuracy = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
+	acc_summ = tf.scalar_summary('accuracy', accuracy)
 
 learning_rate = tf.placeholder(tf.float32)
 train_step = tf.train.GradientDescentOptimizer(learning_rate).minimize(cost)
 
 saver = tf.train.Saver()
 
-run = 'vgg_small'
+run = 'vgg_small1222'
 merged = tf.merge_all_summaries()
 
 tf.initialize_all_variables().run()
 
 train_writer = tf.train.SummaryWriter('logs/' + run + '/train/', sess.graph)
-#train_writer = tf.scalar_summary('logs/' + run + '/train/', sess.graph)
 test_writer = tf.train.SummaryWriter('logs/' + run + '/test/')
 
 step = 0
-present_learning_rate = 0.001
+#present_learning_rate = 0.001
+present_learning_rate = 0.0001
 saver.restore(sess, 'models/'+run)
-for epoch in range(500):
+for epoch in range(1000):
 	cifardataloader.reset_index()
 	avg_loss = 0.0
 	avg_acc = 0.0
@@ -210,7 +157,7 @@ for epoch in range(500):
 	avg_val_acc = 0.0
 	num_val = 0.0
 
-	if((epoch%100 == 0) and (epoch != 0)):
+	if((epoch%200 == 0) and (epoch != 0)):
 		present_learning_rate /= 2.0
 
 	f = open('logs/log.txt', 'a')
@@ -222,27 +169,27 @@ for epoch in range(500):
 		batch_x = batch['images']#.reshape([-1, 32*32*3])
 		batch_y = batch['labels']
 
-		#loss, acc, _, summary = sess.run([cost, accuracy, train_step, merged], feed_dict = {x : batch_x, y : batch_y, learning_rate : present_learning_rate, phase_train : True})
-		loss, acc, _ = sess.run([cost, accuracy, train_step], feed_dict = {x : batch_x, y : batch_y, learning_rate : present_learning_rate, phase_train : True})
+		loss, acc, _, summary = sess.run([cost, accuracy, train_step, merged], feed_dict = {x : batch_x, y : batch_y, learning_rate : present_learning_rate, phase_train : True})
+		#loss, acc, _ = sess.run([cost, accuracy, train_step], feed_dict = {x : batch_x, y : batch_y, learning_rate : present_learning_rate, phase_train : True})
 
 		avg_loss += loss
 		avg_acc += acc
-		#train_writer.add_summary(summary, step)
+		train_writer.add_summary(summary, step)
 
 		if batch_num % 100 == 0:
 			batch = cifardataloader.next_batch(data_type='val')
 			batch_x = batch['images']#.reshape([-1, 32*32*3])
 			batch_y = batch['labels']
 
-			#summary, loss, acc = sess.run([merged, cost, accuracy], feed_dict = {x : batch_x, y : batch_y, phase_train : False})
-			loss, acc = sess.run([cost, accuracy], feed_dict = {x : batch_x, y : batch_y, phase_train : False})
+			summary, loss, acc = sess.run([merged, cost, accuracy], feed_dict = {x : batch_x, y : batch_y, phase_train : False})
+			#loss, acc = sess.run([cost, accuracy], feed_dict = {x : batch_x, y : batch_y, phase_train : False})
 			
 			avg_val_loss += loss
 			avg_val_acc += acc
 			num_val += 1.0
-			#test_writer.add_summary(summary, step)
+			test_writer.add_summary(summary, step)
 
-			save_path = saver.save(sess, 'models/'+run + '1')
+			save_path = saver.save(sess, 'models/'+run+'2')
 
 	avg_acc = avg_acc*100.0/num_batches
 	avg_loss = avg_loss*1.0/num_batches
@@ -300,6 +247,6 @@ test_writer.close()
 			Epoch: 60 Acc: 58.325 Loss: 1.16739753323
 
 	vgg-net, 0.3:
-
+			
 
 """
