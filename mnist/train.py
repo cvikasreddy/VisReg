@@ -13,7 +13,7 @@
 
 import os
 os.environ["CUDA_VISIBLE_DEVICES"]="0"
-from tqdm import tqdm
+#from tqdm import tqdm
 
 import numpy as np
 import tensorflow as tf
@@ -24,15 +24,21 @@ from tensorflow.examples.tutorials.mnist import input_data
 mnist = input_data.read_data_sets("data/", one_hot = True)
 
 batch_size = 64
+conv = False
 
 train_size = mnist.train.images.shape[0]
+test_size = mnist.test.images.shape[0]
 X_mean = mnist.train.images.mean(axis=0)
+if conv == True:
+	X_mean = X_mean.reshape([-1, 28, 28, 1])
 
 sess = tf.InteractiveSession()
 
 with tf.name_scope('input'):
-	x = tf.placeholder(tf.float32, shape=[None, 28*28])
-	x_conv = tf.placeholder(tf.float32, shape=[None, 28, 28, 1])
+	if conv == True:
+		x = tf.placeholder(tf.float32, shape=[None, 28, 28, 1])
+	else:
+		x = tf.placeholder(tf.float32, shape=[None, 28*28])
 	y = tf.placeholder(tf.float32, shape=[None, 10])
 
 with tf.name_scope('phase'):
@@ -45,12 +51,19 @@ def fc_net(x):
 	return out
 
 def fc_bn_net(x):
-	fc1 = fc_layer(x, 28*28, 100)
+	fc1 = fc_layer(x, 28*28, 1000)
+	fc2 = fc_layer(fc1, 1000, 1000)
+	out = fc_layer(fc2, 1000, 10, act='softmax')
+	return out
 
-	fc2 = fc_layer(fc1, 100, 100)
-	fc2 = dropout_layer(fc2, 0.8)
+def fc3_bn_net(x):
+	fc1 = fc_layer(x, 28*28, 1000)
 
-	out = fc_layer(fc2, 100, 10, act='softmax')
+	fc2 = fc_layer(fc1, 1000, 1000)
+
+	fc3 = fc_layer(fc2, 1000, 1000)
+	fc3 = dropout_layer(fc3, 0.9)
+	out = fc_layer(fc3, 1000, 10, act='softmax')
 	return out
 
 def fc_bn_do_net(x):
@@ -64,7 +77,7 @@ def fc_bn_do_net(x):
 	return out
 
 def conv_net(x):
-	conv1 = conv_layer(x_conv, [3, 3, 1, 64], 64)
+	conv1 = conv_layer(x, [3, 3, 1, 64], 64)
 	conv2 = conv_layer(conv1, [3, 3, 64, 64], 64)
 	pool1 = pool_layer(conv2)
 
@@ -74,7 +87,7 @@ def conv_net(x):
 	return out
 
 def conv4_net(x):
-	conv1 = conv_layer(x_conv, [3, 3, 1, 64], 64)
+	conv1 = conv_layer(x, [3, 3, 1, 64], 64)
 	conv2 = conv_layer(conv1, [3, 3, 64, 64], 64)
 	pool1 = pool_layer(conv2)
 
@@ -88,7 +101,7 @@ def conv4_net(x):
 	return out
 
 def conv4_do_net(x):
-	conv1 = conv_layer(x_conv, [3, 3, 1, 64], 64)
+	conv1 = conv_layer(x, [3, 3, 1, 64], 64)
 	drop1 = dropout_layer(conv1, 0.3)
 	conv2 = conv_layer(drop1, [3, 3, 64, 64], 64)
 	pool1 = pool_layer(conv2)
@@ -105,37 +118,42 @@ def conv4_do_net(x):
 	out = fc_layer(drop4, 1024, 10, act='softmax')
 	return out
 
-pred = conv_net(x)
+if conv == True:
+	pred = conv_net(x)
+else:
+	#pred = fc_bn_net(x)
+	pred = fc3_bn_net(x)
 
 beta = 0.01
 gamma = 0.01
+num_epochs = 200
 
 with tf.name_scope('loss'):
 	cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(pred, y))
 	
-	# with tf.name_scope('l2_loss'):
-	# 	trainable_vars = [
- #                                tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='fc_layer/weights'),
- #                                tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='fc_layer/biases'),
- #                                tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='fc_layer_1/weights'),
- #                                tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='fc_layer_1/biases'),
- #                                tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='fc_layer_2/weights'),
- #                                tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='fc_layer_2/biases')
- #            ]
-	# 	l2_loss = tf.add_n([tf.nn.l2_loss(v) for v in trainable_vars])
-	# 	cost = cost + beta*l2_loss
+	with tf.name_scope('l2_loss'):
+		trainable_vars = [
+                                tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='fc_layer/weights'),
+                                tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='fc_layer/biases'),
+                                tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='fc_layer_1/weights'),
+                                tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='fc_layer_1/biases'),
+                                tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='fc_layer_2/weights'),
+                                tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='fc_layer_2/biases')
+            ]
+		l2_loss = tf.add_n([tf.nn.l2_loss(v) for v in trainable_vars])
+		cost = cost + beta*l2_loss
 
-	# with tf.name_scope("vr_cost"):
-	# 	cW = tf.Variable([-1.0, -1.0, -1.0, -1.0, 8.0, -1.0, -1.0, -1.0, -1.0], trainable=False)
-	# 	cW = tf.reshape(cW, [3, 3, 1, 1])
+	with tf.name_scope("vr_cost"):
+		cW = tf.Variable([-1.0, -1.0, -1.0, -1.0, 8.0, -1.0, -1.0, -1.0, -1.0], trainable=False)
+		cW = tf.reshape(cW, [3, 3, 1, 1])
 
-	# 	weights_fc1 = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='fc_layer/weights')[0]
-	# 	temp = tf.reshape(weights_fc1, [-1, 28, 28, 1])
+		weights_fc1 = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='fc_layer/weights')[0]
+		temp = tf.reshape(weights_fc1, [-1, 28, 28, 1])
 
-	# 	conved = tf.nn.conv2d(temp, cW, strides=[1, 1, 1, 1], padding='SAME')
-	# 	vr_loss = tf.reduce_mean(conved*conved)
+		conved = tf.nn.conv2d(temp, cW, strides=[1, 1, 1, 1], padding='SAME')
+		vr_loss = tf.reduce_mean(conved*conved)
 
-	# 	cost = cost + gamma*vr_loss
+		cost = cost + gamma*vr_loss
 
 	cost_summ = tf.scalar_summary('loss', cost)
                
@@ -151,9 +169,10 @@ train_step = tf.train.GradientDescentOptimizer(learning_rate).minimize(cost)
 
 saver = tf.train.Saver()
 
-run = 'conv'
-#run = 'fc3_bn_do_0.3_l2_' + str(beta) + '_vr_' + str(gamma)
-#run = 'fc3_bn_l2_' + str(beta) + '_vr_' + str(gamma)
+if conv == True:
+	run = 'conv_vr_' + str(gamma) + '_l2_' + str(beta) + '_epochs_' + str(num_epochs)
+else:
+	run = 'fc3_do_0.3_0.8_vr_' + str(gamma) + '_l2_' + str(beta) + '_epochs_' + str(num_epochs)
 print run
 
 train_writer = tf.train.SummaryWriter('logs/' + run + '/train/', sess.graph)
@@ -163,23 +182,19 @@ merged = tf.merge_all_summaries()
 tf.initialize_all_variables().run()
 
 step = 0
-present_learning_rate = 0.001
-try:
-	saver.restore(sess, 'models/'+run)
-except ValueError:
-	print "First time running"
-for epoch in range(250):
+present_learning_rate = 0.01
+# try:
+# 	saver.restore(sess, 'models/'+run)
+# except ValueError:
+# 	print "First time running"
+for epoch in range(num_epochs):
 	avg_loss = 0.0
 	avg_acc = 0.0
 	num_batches = int(train_size*1.0/batch_size)
 
-	avg_val_loss = 0.0
-	avg_val_acc = 0.0
-	num_val = 0.0
-
 	if((epoch%75 == 0) and (epoch != 0) and (epoch < 100)):
 		present_learning_rate /= 2.0
-	if((epoch > 100) and (epoch%50 == 0)):
+	if((epoch >= 100) and (epoch%25 == 0)):
 		present_learning_rate /= 2.0
 
 	f = open('logs/log.txt', 'a')
@@ -188,41 +203,61 @@ for epoch in range(250):
 		step += 1.0
 
 		batch_x, batch_y = mnist.train.next_batch(batch_size)
-		batch_x = batch_x.reshape([-1, 28, 28, 1])
+		if conv == True:
+			batch_x = batch_x.reshape([-1, 28, 28, 1])
 
-		loss, acc, _, summary = sess.run([cost, accuracy, train_step, merged], feed_dict = {x_conv : batch_x, y : batch_y, learning_rate : present_learning_rate, phase_train : True})
+		loss, acc, _, summary = sess.run([cost, accuracy, train_step, merged], feed_dict = {x : batch_x - X_mean, y : batch_y, learning_rate : present_learning_rate, phase_train : True})
 		
-
 		avg_loss += loss
 		avg_acc += acc
 		train_writer.add_summary(summary, step)
-
-		if batch_num % 100 == 0:
-			batch_x, batch_y = mnist.test.next_batch(batch_size)
-			batch_x = batch_x.reshape([-1, 28, 28, 1])
-
-			summary, loss, acc = sess.run([merged, cost, accuracy], feed_dict = {x_conv : batch_x, y : batch_y, phase_train : False, learning_rate : present_learning_rate}) #here learning_arte is not required but for merged summary it is required
-			
-			avg_val_loss += loss
-			avg_val_acc += acc
-			num_val += 1.0
-			test_writer.add_summary(summary, step)
-
-			save_path = saver.save(sess, 'models/'+run)
 
 	avg_acc = avg_acc*100.0/num_batches
 	avg_loss = avg_loss*1.0/num_batches
 	f.write("Train Epoch: " + str(epoch + 1) + ' Acc: ' + str(avg_acc) + ' Loss: ' + str(avg_loss) + '\n')
 	print "Train Epoch: " + str(epoch + 1) + ' Acc: ' + str(avg_acc) + '0'*(15-len(str(avg_acc))) + ' Loss: ' + str(avg_loss)
 
-	avg_val_acc = avg_val_acc*100.0/num_val
-	avg_val_loss = avg_val_loss*1.0/num_val
-	f.write("Val   Epoch: " + str(epoch + 1) + ' Acc: ' + str(avg_val_acc) + ' Loss: ' + str(avg_val_loss) + '\n')
-	print "Val   Epoch: " + str(epoch + 1) + ' Acc: ' + str(avg_val_acc) + '0'*(15-len(str(avg_val_acc))) + ' Loss: ' + str(avg_val_loss)
+	#Test every 3rd epoch
+	if((epoch%3 == 0) and (epoch != 0)): 
+
+		avg_val_loss = 0.0
+		avg_val_acc = 0.0
+		num_batches = int(test_size*1.0/batch_size)
+
+		for batch_num in range(num_batches):
+			batch_x, batch_y = mnist.test.next_batch(batch_size)
+			if conv == True:
+				batch_x = batch_x.reshape([-1, 28, 28, 1])
+
+			loss, acc, summary = sess.run([cost, accuracy, merged], feed_dict = {x : batch_x - X_mean, y : batch_y, learning_rate : present_learning_rate, phase_train : False})
+			
+			avg_val_loss += loss
+			avg_val_acc += acc
+			test_writer.add_summary(summary, step)
+
+		avg_val_acc = avg_val_acc*100.0/num_batches
+		avg_val_loss = avg_val_loss*1.0/num_batches
+		f.write("Val   Epoch: " + str(epoch + 1) + ' Acc: ' + str(avg_val_acc) + ' Loss: ' + str(avg_val_loss) + '\n')
+		print " "*60 + "Val   Epoch: " + str(epoch + 1) + ' Acc: ' + str(avg_val_acc) + '0'*(15-len(str(avg_val_acc))) + ' Loss: ' + str(avg_val_loss)
+
+		save_path = saver.save(sess, 'models/'+run)
 
 	f.close()
 
-test_accuracy = sess.run(accuracy, feed_dict={x: mnist.test.images - X_mean, y: mnist.test.labels, phase_train : False})
+if conv == True:
+	test_x = mnist.test.images.reshape(-1, 28, 28, 1)[:5000]
+else:
+	test_x = mnist.test.images[:5000]
+test_y = mnist.test.labels[:5000]
+test_accuracy_1 = sess.run(accuracy, feed_dict={x: test_x - X_mean, y: test_y, phase_train : False})
+
+if conv == True:
+	test_x = mnist.test.images.reshape(-1, 28, 28, 1)[5000:]
+else:
+	test_x = mnist.test.images[5000:]
+test_y = mnist.test.labels[5000:]
+test_accuracy_2 = sess.run(accuracy, feed_dict={x: test_x - X_mean, y: test_y, phase_train : False})
+test_accuracy = (test_accuracy_1 + test_accuracy_2)/2.0
 print "Testing Accuracy: " + str(test_accuracy)
 
 q = open('results.txt', 'a')
@@ -280,5 +315,21 @@ test_writer.close()
 			0.0 0.0 0.9803
 			0.0 0.02 0.9816
 			0.01 0.03 0.9809
+
+
+
+
+
+
+
+
+
+
+
+	conv, 250 epochs
+			0.0  => 98.6
+			vr 0.01 => 98.7
+			l2 0.01 => 99.28
+			vr + l2 0.01 => 
 
 """
