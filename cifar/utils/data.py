@@ -82,12 +82,12 @@ class CifarDataLoader(object):
         self.test_dataset, self.test_labels = self.reformat(self.test_dataset, self.test_labels)
 
 
-        #Just making training set contain 512 images
+        #Making training set contain 512 images
         # perm_train = permutation(500)
         # self.train_dataset = self.train_dataset[perm_train]
         # self.train_labels = self.train_labels[perm_train]
 
-        #Just making test set contain 512 images
+        #Making test set contain 512 images
         perm_test = permutation(1000)
         self.test_dataset = self.test_dataset[perm_test]
         self.test_labels = self.test_labels[perm_test]
